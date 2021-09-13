@@ -42,17 +42,17 @@
 /* single word (4) or double word (8) alignment */
 #define ALIGNMENT 8
 
-/*********************************************************
+/********************************************************
  * NOTE TO STUDENTS: Before you do anything else, please
  * provide your team information in the following struct.
  ********************************************************/
 team_t team = {
     /* Team name */
-    "ateam",
+    "chimera",
     /* First member's full name */
-    "Harry Bovik",
+    "Genghis Khan",
     /* First member's email address */
-    "bovik@cs.cmu.edu",
+    "mongol@empire.com",
     /* Second member's full name (leave blank if none) */
     "jinh",
     /* Second member's email address (leave blank if none) */
@@ -61,6 +61,7 @@ team_t team = {
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
+// SIZE_TSIZE == 8
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
 /* 
@@ -69,6 +70,7 @@ team_t team = {
 
 // 위치 맞나??
 static void *heap_listp = NULL;
+static void *next_fit_ptr = NULL;
 
 
 static void *coalesce(void *bp);
@@ -85,7 +87,9 @@ int mm_init(void)
     PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1));  // prologue header
     PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1));  // prologue footer
     PUT(heap_listp + (3 * WSIZE), PACK(0, 1));      // epilogue header
-    heap_listp += (2 * WSIZE);      // 왜 하필 여기인지..?
+    heap_listp += (2 * WSIZE);                      // bp of prologue block
+    // next-fit
+    next_fit_ptr = heap_listp;
 
     // extend the empty heap with a free block of CHUNKSIZE bytes
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL) return -1;
@@ -122,20 +126,20 @@ void *mm_malloc(size_t size)
 
 
     // version1
-    // ALIGNMENT == 8, sizeof(size_t) == 8 -> SIZE_SIZE == 8
-    // 궁금한 점: 책에서는 size = 0인 경우 예외처리 해주었는데
-    // 이대로면 size = 0 --> newsize = 8이 나오는듯??
+
     // ignore spurious requests
     if (size == 0) return NULL;
-
     
-    // adfust block size to include overhead and alignment reqs.
+    // adjust block size to include overhead and alignment reqs.
+    // newsize = (size + ALIGNMENT + (ALIGNMENT-1)) & ~0x7
     int newsize = ALIGN(size + SIZE_T_SIZE);
 
     // search the free list for a fit
     char *bp;
     if ((bp = find_fit(newsize)) != NULL){
         place(bp, newsize);
+        // next-fit
+        next_fit_ptr = bp;
         return bp;
     }
 
@@ -145,17 +149,11 @@ void *mm_malloc(size_t size)
     if ((bp = extend_heap(extendsize/WSIZE)) == NULL) return NULL;
     // heap extension success
     place(bp, newsize);
+
+    // next-fit
+    next_fit_ptr = bp;
     return bp;
 
-    ///////////////////////////////////////////
-    // 원래 코드...
-    // int newsize = ALIGN(size + SIZE_T_SIZE);
-    // void *p = mem_sbrk(newsize);
-    // if (p == (void *)-1) return NULL;
-    // else {
-    //     *(size_t *)p = size;    // 
-    //     return (void *)((char *)p + SIZE_T_SIZE);
-    // }
 }
 
 /*
@@ -167,7 +165,6 @@ void mm_free(void *bp)
 
     PUT(HDRP(bp), PACK(size, 0));
     PUT(FTRP(bp), PACK(size, 0));
-
     coalesce(bp);
 }
 
@@ -181,18 +178,20 @@ void *mm_realloc(void *ptr, size_t size)
     size_t copySize;
     
     newptr = mm_malloc(size);
+    // newly allocation fails
     if (newptr == NULL) return NULL;
+
+    // 원래 있던 코드: 에러 유발
     // copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    copySize = GET_SIZE(HDRP(oldptr));
-    if (size < copySize) copySize = size;
+
+    // copy data from original block to new block
+    copySize = GET_SIZE(HDRP(oldptr));      // copySize: size of data to be copied
+    if (size < copySize) copySize = size;   
     memcpy(newptr, oldptr, copySize);
+
     mm_free(oldptr);
     return newptr;
 }
-
-
-
-
 
 static void *extend_heap(size_t words){
     // extends the heap with new free block
@@ -238,59 +237,90 @@ static void *coalesce(void *bp){
     }
     // case4: prev(free) & next(free)
     else{
-        size += (GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp))));
+        size += (GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(HDRP(NEXT_BLKP(bp))));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
         bp = PREV_BLKP(bp);
     }
+    // next-fit
+    next_fit_ptr = bp;
     return bp;
 }
 
+// next-fit
 static void *find_fit(size_t newsize){
     // my code
-    // // first-fit
+    // next-fit version 2
 
-    // char *bp = (char *)heap_listp + (2 *WSIZE);   // first-block-pointer
-    // char *end = mem_heap_hi();                    // last byte of current heap
+    void *bp = next_fit_ptr;
+    char *end = mem_heap_hi();                    // last byte of current heap
 
-    // // find first-fit free block: free & lagre enough
-    // while ((bp < end) && 
-    //         (GET_ALLOC(HDRP(bp)) || newsize > GET_SIZE(HDRP(bp)))){
-    //         bp = NEXT_BLKP(bp);
-    //         }
+    while ((bp < end) && 
+            (GET_ALLOC(HDRP(bp)) || newsize > GET_SIZE(HDRP(bp)))){
+            bp = NEXT_BLKP(bp);
+            }
+    if (bp < end) return bp;
 
-    // // not found
-    // if (bp >= end) return NULL;
-    // return bp;
-
-    // solution in book
-    void *bp;
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)){
-        if (!GET_ALLOC(HDRP(bp)) && (newsize <= GET_SIZE(HDRP(bp)))){
-            return bp;
-        }
-    }
-    // no fit
-    return NULL;
+    // re-find from first(heap_listp)
+    bp = heap_listp;
+    while ((bp < next_fit_ptr) && 
+            (GET_ALLOC(HDRP(bp)) || newsize > GET_SIZE(HDRP(bp)))){
+            bp = NEXT_BLKP(bp);
+            }
+    // no fit found
+    if (bp >= next_fit_ptr) return NULL;
+    return bp;
 }
+
+// // first-fit
+// static void *find_fit(size_t newsize){
+//     // my code
+//     // first-fit
+
+//     void *bp = heap_listp;
+//     char *end = mem_heap_hi();                    // last byte of current heap
+
+//     // find first-fit free block: free & lagre enough
+//     while ((bp < end) && 
+//             (GET_ALLOC(HDRP(bp)) || newsize > GET_SIZE(HDRP(bp)))){
+//             bp = NEXT_BLKP(bp);
+//             }
+
+//     // not found
+//     if (bp >= end) return NULL;
+//     return bp;
+
+//     // // solution in book
+//     // void *bp;
+//     // for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)){
+//     //     if (!GET_ALLOC(HDRP(bp)) && (newsize <= GET_SIZE(HDRP(bp)))){
+//     //         return bp;
+//     //     }
+//     // }
+//     // // no fit
+//     // return NULL;
+// }
+
 
 static void place(void *bp, size_t newsize){
     
-    // my code
-    // PUT(HDRP(bp), PACK(newsize, 1));
-    // PUT(FTRP(bp), PACK(newsize, 1));
-
     // solution in book
+
+    // size of free block
     size_t csize = GET_SIZE(HDRP(bp));
 
+    // spliting: size of remaining free is greater or equal than 16(minimum block size)
     if ((csize - newsize) >= (2 * DSIZE)){
+        // allocation block at bp
         PUT(HDRP(bp), PACK(newsize, 1));
         PUT(FTRP(bp), PACK(newsize, 1));
         bp = NEXT_BLKP(bp);
 
+        // setting free block at remaining of original free block
         PUT(HDRP(bp), PACK(csize-newsize, 0));
         PUT(FTRP(bp), PACK(csize-newsize, 0));
     }
+    // not splitting
     else{
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
