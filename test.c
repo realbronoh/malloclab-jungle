@@ -1,16 +1,14 @@
 #include <stdio.h>
+#include <stdlib.h>
 
-#define ALIGNMENT 8
-#define __SIZE_TYPE__ long unsigned int
-typedef __SIZE_TYPE__ size_t;
-#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
-#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
 int main(void){
-    int newsize = ALIGN(9 + SIZE_T_SIZE);
-    // printf("%ld\n", SIZE_T_SIZE);
-    // printf("%d\n", (int)sizeof(long unsigned int));
-    printf("%d\n", newsize);
+    int n = 1000;
+    void *ptr = malloc(4 * n);
+    *((int *)ptr + 997) = 55555;
+    for (int i=0; i<n; i++){
+        printf("%d-idx is %d\n", i, *((int *)ptr + i));
+    }
 
     return 0;
 }
